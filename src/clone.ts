@@ -17,6 +17,7 @@ export interface CloneOptions {
   branch: string;
   quiet: boolean;
   signal?: AbortSignal;
+  workDir: string;
 }
 
 /**
@@ -93,7 +94,7 @@ export async function validateGitVersion(): Promise<boolean> {
  * set the target directory, then checkout the branch.
  */
 export async function sparseClone(options: CloneOptions): Promise<void> {
-  const { gitUrl, gitDir, localDir, branch, quiet, signal } = options;
+  const { gitUrl, gitDir, localDir, branch, quiet, signal, workDir } = options;
 
   // Step 1: Validate Git version
   const gitOk = await validateGitVersion();
@@ -103,15 +104,11 @@ export async function sparseClone(options: CloneOptions): Promise<void> {
     );
   }
 
-  // Step 2: Create temp working directory
-  // (Temp dir is managed externally — we just need the path)
-  const workDir = path.dirname(localDir);
-
   if (!quiet) {
     console.log('clone in...');
   }
 
-  // Step 3: Clone with partial clone filter
+  // Step 2: Clone with partial clone filter into workDir
   try {
     const cloneArgs = buildCloneCmd(workDir);
     // Replace placeholder with actual URL
@@ -185,4 +182,7 @@ export async function sparseClone(options: CloneOptions): Promise<void> {
       throw err;
     }
   }
+
+  // Step 6: Copy files from workDir/gitDir to localDir
+  await copyOutput(workDir, gitDir, localDir);
 }

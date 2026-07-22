@@ -86,6 +86,7 @@ async function main(): Promise<void> {
         branch: options.branch,
         quiet: options.quiet,
         signal: controller.signal,
+        workDir: tempDir,
       });
     } finally {
       clearTimeout(timeoutId);
