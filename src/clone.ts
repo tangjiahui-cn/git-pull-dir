@@ -36,10 +36,16 @@ export function buildCloneCmd(workDir: string): string[] {
 
 /**
  * Build the sparse-checkout init and set command arguments.
+ * For root (./ or .), skip sparse-checkout entirely and do a full checkout.
+ * For other paths, use non-cone mode to support both files and directories.
  */
 export function buildSparseCheckoutCmd(gitDir: string): string[][] {
+  if (gitDir === './' || gitDir === '.') {
+    // Root: skip sparse-checkout, do full checkout
+    return [];
+  }
   return [
-    ['sparse-checkout', 'init', '--cone'],
+    ['sparse-checkout', 'init'],  // non-cone mode (supports files)
     ['sparse-checkout', 'set', gitDir],
   ];
 }
@@ -63,11 +69,35 @@ export async function copyOutput(
     ? workDir
     : path.join(workDir, gitDir);
 
-  // Ensure parent directory of localDir exists
-  await fs.promises.mkdir(path.dirname(localDir), { recursive: true });
+  // Create localDir as a directory
+  await fs.promises.mkdir(localDir, { recursive: true });
 
-  // Copy recursively
-  await fs.promises.cp(srcPath, localDir, { recursive: true, force: true });
+  if (gitDir === './' || gitDir === '.') {
+    // Root copy: copy each entry except .git
+    const entries = await fs.promises.readdir(workDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === '.git') continue;
+      const srcEntry = path.join(workDir, entry.name);
+      const destEntry = path.join(localDir, entry.name);
+      await fs.promises.cp(srcEntry, destEntry, { recursive: true, force: true });
+    }
+  } else {
+    // Check if srcPath is a file or directory
+    const srcStat = await fs.promises.stat(srcPath);
+    if (srcStat.isFile()) {
+      // Single file: copy into the localDir
+      const destFile = path.join(localDir, path.basename(srcPath));
+      await fs.promises.cp(srcPath, destFile, { force: true });
+    } else {
+      // Directory: copy contents into localDir
+      const entries = await fs.promises.readdir(srcPath);
+      for (const entry of entries) {
+        const srcEntry = path.join(srcPath, entry);
+        const destEntry = path.join(localDir, entry);
+        await fs.promises.cp(srcEntry, destEntry, { recursive: true, force: true });
+      }
+    }
+  }
 }
 
 /**
@@ -115,7 +145,7 @@ export async function sparseClone(options: CloneOptions): Promise<void> {
     cloneArgs[cloneArgs.indexOf('{{URL}}')] = gitUrl;
 
     await execa('git', cloneArgs, {
-      signal,
+      cancelSignal: signal,
       timeout: 180_000,
     });
   } catch (err) {
@@ -140,7 +170,7 @@ export async function sparseClone(options: CloneOptions): Promise<void> {
   for (const args of sparseSteps) {
     try {
       await execa('git', ['-C', workDir, ...args], {
-        signal,
+        cancelSignal: signal,
         timeout: 60_000,
       });
     } catch (err) {
@@ -159,7 +189,7 @@ export async function sparseClone(options: CloneOptions): Promise<void> {
   // Step 5: Checkout the branch
   try {
     await execa('git', ['-C', workDir, ...buildCheckoutCmd(branch)], {
-      signal,
+      cancelSignal: signal,
       timeout: 180_000,
     });
   } catch (err) {
@@ -172,7 +202,7 @@ export async function sparseClone(options: CloneOptions): Promise<void> {
       // Branch not found — try master
       try {
         await execa('git', ['-C', workDir, 'checkout', 'master'], {
-          signal,
+          cancelSignal: signal,
           timeout: 180_000,
         });
       } catch {

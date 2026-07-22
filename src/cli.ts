@@ -36,7 +36,7 @@ export function parseArgs(argv: string[]): CliOptions {
     .exitOverride();
 
   try {
-    program.parse(argv);
+    program.parse(argv, { from: 'user' });
   } catch {
     // Commander already printed the error/help
     process.exit(1);

@@ -28,8 +28,18 @@ describe('buildSparseCheckoutCmd', () => {
   it('should build correct sparse-checkout set command', () => {
     const steps = buildSparseCheckoutCmd('packages/core');
     expect(steps).toHaveLength(2);
-    expect(steps[0]).toEqual(['sparse-checkout', 'init', '--cone']);
+    expect(steps[0]).toEqual(['sparse-checkout', 'init']);
     expect(steps[1]).toEqual(['sparse-checkout', 'set', 'packages/core']);
+  });
+
+  it('should return empty steps for root path', () => {
+    const steps = buildSparseCheckoutCmd('./');
+    expect(steps).toHaveLength(0);
+  });
+
+  it('should return empty steps for dot path', () => {
+    const steps = buildSparseCheckoutCmd('.');
+    expect(steps).toHaveLength(0);
   });
 });
 
