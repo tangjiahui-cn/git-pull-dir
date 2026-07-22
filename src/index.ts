@@ -22,8 +22,6 @@ import {
   GitPullDirError,
   DirExistsError,
   CancelError,
-  DiskSpaceError,
-  TimeoutError,
 } from './errors.js';
 import { execa } from 'execa';
 

@@ -43,7 +43,7 @@ describe('integration: full clone flow', () => {
     const tmpDir = await createTempDir();
     const localDir = path.join(tmpDir, 'full-project');
 
-    const { code, stderr } = await runCli([
+    const { code } = await runCli([
       TEST_REPO,
       './',
       localDir,

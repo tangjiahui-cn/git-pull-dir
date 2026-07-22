@@ -176,7 +176,7 @@ export async function sparseClone(options: CloneOptions): Promise<void> {
     } catch (err) {
       const execaErr = err as ExecaError;
       if (execaErr.stderr?.includes('not a valid directory')) {
-        throw new Error(`目录 "${gitDir}" 在仓库中不存在`);
+        throw new Error(`目录 "${gitDir}" 在仓库中不存在`, { cause: err });
       }
       throw err;
     }

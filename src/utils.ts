@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createInterface } from 'node:readline';
-import { DirExistsError, CancelError } from './errors.js';
+import { DirExistsError } from './errors.js';
 
 /**
  * Create a temporary working directory and return its path.
@@ -124,9 +124,10 @@ export async function ensureOutputDir(dir: string): Promise<void> {
 }
 
 /**
- * Create an AbortController with a timeout (3 minutes by default).
+ * Create an AbortController for timeout management.
+ * The actual timeout is set by the caller via setTimeout.
  */
-export function setupAbortController(timeoutMs = 180_000): AbortController {
+export function setupAbortController(): AbortController {
   return new AbortController();
 }
 
