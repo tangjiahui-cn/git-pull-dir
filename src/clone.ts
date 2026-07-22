@@ -18,6 +18,8 @@ export interface CloneOptions {
   quiet: boolean;
   signal?: AbortSignal;
   workDir: string;
+  trailingSlash: boolean;
+  expandMode: boolean;
 }
 
 /**
@@ -59,44 +61,65 @@ export function buildCheckoutCmd(branch: string): string[] {
 
 /**
  * Copy files from the cloned sparse worktree to the final local directory.
+ *
+ * Behaviour is determined at runtime via fs.stat:
+ * - File: always placed directly into localDir (trailingSlash has no effect).
+ * - Directory:
+ *   - expandMode=true → flatten contents into localDir
+ *   - trailingSlash=true → wrap contents in localDir/<basename>
+ *   - otherwise → replace mode: contents go directly into localDir
+ * - Root (./ or .): copy all entries, skip .git.
  */
 export async function copyOutput(
   workDir: string,
   gitDir: string,
   localDir: string,
+  trailingSlash = false,
+  expandMode = false,
 ): Promise<void> {
-  const srcPath = gitDir === './' || gitDir === '.'
-    ? workDir
-    : path.join(workDir, gitDir);
-
   // Create localDir as a directory
   await fs.promises.mkdir(localDir, { recursive: true });
 
   if (gitDir === './' || gitDir === '.') {
     // Root copy: copy each entry except .git
-    const entries = await fs.promises.readdir(workDir, { withFileTypes: true });
+    const srcDir = workDir;
+    const entries = await fs.promises.readdir(srcDir, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.name === '.git') continue;
-      const srcEntry = path.join(workDir, entry.name);
+      const srcEntry = path.join(srcDir, entry.name);
       const destEntry = path.join(localDir, entry.name);
       await fs.promises.cp(srcEntry, destEntry, { recursive: true, force: true });
     }
+    return;
+  }
+
+  const srcPath = path.join(workDir, gitDir);
+  const srcStat = await fs.promises.stat(srcPath);
+
+  if (srcStat.isFile()) {
+    // File: always placed into localDir (no container semantics for files)
+    const destFile = path.join(localDir, path.basename(srcPath));
+    await fs.promises.cp(srcPath, destFile, { force: true });
+    return;
+  }
+
+  // Directory:
+  //   expandMode flattens contents; trailingSlash wraps in a subdirectory
+  let destPath: string;
+  if (expandMode) {
+    destPath = localDir;
+  } else if (trailingSlash) {
+    destPath = path.join(localDir, path.basename(gitDir));
   } else {
-    // Check if srcPath is a file or directory
-    const srcStat = await fs.promises.stat(srcPath);
-    if (srcStat.isFile()) {
-      // Single file: copy into the localDir
-      const destFile = path.join(localDir, path.basename(srcPath));
-      await fs.promises.cp(srcPath, destFile, { force: true });
-    } else {
-      // Directory: copy contents into localDir
-      const entries = await fs.promises.readdir(srcPath);
-      for (const entry of entries) {
-        const srcEntry = path.join(srcPath, entry);
-        const destEntry = path.join(localDir, entry);
-        await fs.promises.cp(srcEntry, destEntry, { recursive: true, force: true });
-      }
-    }
+    destPath = localDir;
+  }
+
+  await fs.promises.mkdir(destPath, { recursive: true });
+  const entries = await fs.promises.readdir(srcPath);
+  for (const entry of entries) {
+    const srcEntry = path.join(srcPath, entry);
+    const destEntry = path.join(destPath, entry);
+    await fs.promises.cp(srcEntry, destEntry, { recursive: true, force: true });
   }
 }
 
@@ -124,7 +147,7 @@ export async function validateGitVersion(): Promise<boolean> {
  * set the target directory, then checkout the branch.
  */
 export async function sparseClone(options: CloneOptions): Promise<void> {
-  const { gitUrl, gitDir, localDir, branch, quiet, signal, workDir } = options;
+  const { gitUrl, gitDir, localDir, branch, quiet, signal, workDir, trailingSlash, expandMode } = options;
 
   // Step 1: Validate Git version
   const gitOk = await validateGitVersion();
@@ -214,5 +237,5 @@ export async function sparseClone(options: CloneOptions): Promise<void> {
   }
 
   // Step 6: Copy files from workDir/gitDir to localDir
-  await copyOutput(workDir, gitDir, localDir);
+  await copyOutput(workDir, gitDir, localDir, trailingSlash, expandMode);
 }

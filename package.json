@@ -1,7 +1,7 @@
 {
   "name": "git-pull-dir",
-  "version": "0.1.0",
-  "description": "Clone only a specific directory from a git repository using sparse-checkout",
+  "version": "0.2.0",
+  "description": "A CLI tool to clone a specific directory from a remote git repository to local, designed for syncing skills managed by internal GitLab into projects.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -19,6 +19,10 @@
     "git",
     "sparse-checkout",
     "partial-clone",
+    "sparse-clone",
+    "gitlab",
+    "skills",
+    "subdirectory",
     "cli"
   ],
   "license": "MIT",

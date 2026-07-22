@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createInterface } from 'node:readline';
-import { DirExistsError } from './errors.js';
+import { DirExistsError, InvalidArgumentError } from './errors.js';
 
 /**
  * Create a temporary working directory and return its path.
@@ -24,14 +24,47 @@ export async function cleanupTempDir(dir: string): Promise<void> {
 
 /**
  * When local-dir is omitted, derive it from the last segment of git-dir.
+ * Internally strips `/*` suffix so callers don't need to pre-process.
  */
 export function getLocalDirName(gitDir: string, localDir?: string): string {
   if (localDir) return localDir;
-  // Normalize path separators and get the last segment
-  const normalized = gitDir.replace(/\\/g, '/').replace(/\/$/, '');
+
+  // Strip /* suffix to get the meaningful path
+  const withoutStar = gitDir.replace(/\/\*$/, '');
+  const normalized = withoutStar.replace(/\\/g, '/').replace(/\/$/, '');
   const segments = normalized.split('/');
   const last = segments[segments.length - 1];
-  return last || 'output';
+
+  if (!last || last === '.' || last === '*') {
+    throw new InvalidArgumentError(
+      '根目录不支持 /* 展开，请在 <git-dir> 中指定具体目录路径。示例：src/* 或 packages/core/*',
+    );
+  }
+
+  return last;
+}
+
+/**
+ * Compute the effective output directory for existence-check purposes.
+ *
+ * In container mode (directory + trailingSlash), the effective target is
+ * `localDir/<git-dir-basename>`, not `localDir` itself.
+ *
+ * In expand mode or root mode, the effective target is `localDir` itself.
+ */
+export function computeEffectiveDir(
+  localDir: string,
+  gitDir: string,
+  trailingSlash: boolean,
+  expandMode: boolean,
+): string {
+  // Root or expand mode → target is localDir itself
+  if (expandMode || gitDir === './' || gitDir === '.') return localDir;
+  if (trailingSlash) {
+    const basename = path.basename(gitDir.replace(/\/+$/, ''));
+    return path.join(localDir, basename);
+  }
+  return localDir;
 }
 
 /**

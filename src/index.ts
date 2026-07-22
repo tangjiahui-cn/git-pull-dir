@@ -14,6 +14,7 @@ import {
   cleanupTempDir,
   getLocalDirName,
   ensureOutputDir,
+  computeEffectiveDir,
   promptOverwrite,
   setupAbortController,
   handleInterrupt,
@@ -46,18 +47,26 @@ async function main(): Promise<void> {
       );
     }
 
-    // 3. Check if output directory already exists
+    // 3. Compute effective output directory and check existence
+    const resolvedLocalDir = options.resolvedLocalDir ?? localDir;
+    const effectiveDir = computeEffectiveDir(
+      resolvedLocalDir,
+      options.resolvedGitDir,
+      options.trailingSlash,
+      options.expandMode,
+    );
+
     try {
-      await ensureOutputDir(localDir);
+      await ensureOutputDir(effectiveDir);
     } catch (err) {
       if (err instanceof DirExistsError) {
-        const shouldOverwrite = await promptOverwrite(localDir);
+        const shouldOverwrite = await promptOverwrite(effectiveDir);
         if (!shouldOverwrite) {
           console.log('cancelled');
           process.exit(0);
         }
         // Remove the existing directory before proceeding
-        await cleanupTempDir(localDir);
+        await cleanupTempDir(effectiveDir);
       } else {
         throw err;
       }
@@ -79,12 +88,14 @@ async function main(): Promise<void> {
       // 8. Perform sparse clone into tempDir, then copy to localDir
       await sparseClone({
         gitUrl: options.gitUrl,
-        gitDir: options.gitDir,
-        localDir,
+        gitDir: options.resolvedGitDir,
+        localDir: resolvedLocalDir,
         branch: options.branch,
         quiet: options.quiet,
         signal: controller.signal,
         workDir: tempDir,
+        trailingSlash: options.trailingSlash,
+        expandMode: options.expandMode,
       });
     } finally {
       clearTimeout(timeoutId);
@@ -101,7 +112,7 @@ async function main(): Promise<void> {
     }
 
     // 11. Output success
-    console.log(`save at ${localDir}`);
+    console.log(`save at ${effectiveDir}`);
     process.exit(0);
   } catch (err) {
     // Clean up temp directory on error

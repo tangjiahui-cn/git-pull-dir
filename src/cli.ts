@@ -12,9 +12,23 @@ import { InvalidArgumentError } from './errors.js';
 export interface CliOptions {
   gitUrl: string;
   gitDir: string;
+  resolvedGitDir: string;
   localDir?: string;
+  resolvedLocalDir?: string;
+  trailingSlash: boolean;
+  expandMode: boolean;
   branch: string;
   quiet: boolean;
+}
+
+/**
+ * Heuristic check: does the last path segment look like a file (has extension)?
+ * e.g. "package.json" → true, "packages/core" → false, "src/index.ts" → true.
+ * Known limitation: dot-directories like ".config", ".vscode" are misidentified as files.
+ */
+function isFilePath(pathStr: string): boolean {
+  const lastSegment = pathStr.split('/').filter(Boolean).pop() || '';
+  return /\.\w+$/.test(lastSegment);
 }
 
 /**
@@ -68,10 +82,49 @@ export function parseArgs(argv: string[]): CliOptions {
     throw new InvalidArgumentError('<git-dir> cannot be empty');
   }
 
+  // --- Detect /* expand mode ---
+  let expandMode = false;
+  let resolvedGitDir = gitDir;
+
+  if (gitDir.endsWith('/*')) {
+    const pathPart = gitDir.slice(0, -2);
+    if (isFilePath(pathPart)) {
+      throw new InvalidArgumentError(
+        `"${gitDir}" 格式错误 —— "${pathPart}" 是一个文件，不能使用 /* 进行展开。\n` +
+        `请使用目录路径，例如：\n` +
+        `  npx . <url> src/*\n` +
+        `  npx . <url> packages/core/*`,
+      );
+    }
+    resolvedGitDir = pathPart;
+    expandMode = true;
+  }
+
+  // --- Detect trailing / on local-dir ---
+  let trailingSlash = false;
+  let resolvedLocalDir: string | undefined;
+
+  if (localDir) {
+    trailingSlash = localDir.endsWith('/');
+    resolvedLocalDir = localDir.replace(/\/+$/, '');
+
+    // Root dir does not support container mode (no meaningful basename)
+    if (trailingSlash && !expandMode && (gitDir === './' || gitDir === '.')) {
+      throw new InvalidArgumentError(
+        '根目录 (./ 或 .) 不支持容器模式（尾部 /），因为无法确定子目录名称。\n' +
+        '请去掉 local-dir 尾部 / 或指定明确的 git-dir。',
+      );
+    }
+  }
+
   return {
     gitUrl,
     gitDir,
+    resolvedGitDir,
     localDir,
+    resolvedLocalDir,
+    trailingSlash,
+    expandMode,
     branch: options.branch || 'main',
     quiet: !!options.quiet,
   };
