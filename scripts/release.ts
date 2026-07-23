@@ -69,7 +69,6 @@ const C = {
 // Types
 // ============================================================
 type VersionType = typeof VALID_VERSION_TYPES[number];
-type StepId = typeof STEP_IDS[number];
 
 interface CliArgs {
   type: VersionType | null;
@@ -206,7 +205,7 @@ function getVersionFromPkg(cwd: string): string {
 
 function formatVersionPreview(ver: string, type: VersionType): string {
   const p = ver.split('.').map(Number);
-  const next: Record<string, string | (() => string)> = {
+  const next = {
     major:      `${p[0] + 1}.0.0`,
     minor:      `${p[0]}.${p[1] + 1}.0`,
     patch:      `${p[0]}.${p[1]}.${p[2] + 1}`,
@@ -345,7 +344,7 @@ async function stepCheckGit(args: CliArgs, _config: ReleaseConfig, ctx: ReleaseC
 // ============================================================
 // Step 2: Check Node.js version
 // ============================================================
-async function stepCheckNode(args: CliArgs, config: ReleaseConfig, ctx: ReleaseContext): Promise<boolean> {
+async function stepCheckNode(args: CliArgs, _config: ReleaseConfig, ctx: ReleaseContext): Promise<boolean> {
   const header = formatStep(ctx.stepNum, ctx.total, STEP_LABELS['check-node']);
   const r = run('node -v', { capture: true });
   const ver = r.stdout.trim();
