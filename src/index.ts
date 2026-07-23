@@ -7,8 +7,8 @@
  *   parse args → validate → sparse clone → cleanup → output
  */
 
-import { parseArgs, type CliOptions } from './cli.js';
-import { sparseClone } from './clone.js';
+import { parseArgs, isFilePath, type CliOptions } from './cli.js';
+import { sparseClone, getFirstLevelConflicts, copyOutput } from './clone.js';
 import {
   createTempDir,
   cleanupTempDir,
@@ -18,12 +18,16 @@ import {
   promptOverwrite,
   setupAbortController,
   handleInterrupt,
+  promptConflictOverwrite,
+  promptReplaceFile,
 } from './utils.js';
 import {
   GitPullDirError,
   DirExistsError,
   CancelError,
 } from './errors.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { execa } from 'execa';
 
 /**
@@ -47,7 +51,7 @@ async function main(): Promise<void> {
       );
     }
 
-    // 3. Compute effective output directory and check existence
+    // 3. Compute effective output directory
     const resolvedLocalDir = options.resolvedLocalDir ?? localDir;
     const effectiveDir = computeEffectiveDir(
       resolvedLocalDir,
@@ -56,19 +60,24 @@ async function main(): Promise<void> {
       options.expandMode,
     );
 
-    try {
-      await ensureOutputDir(effectiveDir);
-    } catch (err) {
-      if (err instanceof DirExistsError) {
-        const shouldOverwrite = await promptOverwrite(effectiveDir);
-        if (!shouldOverwrite) {
-          console.log('cancelled');
-          process.exit(0);
+    // ───────────── 目录模式：clone 前检查（避免无效 clone） ─────────────
+    if (!options.expandMode && !isFilePath(options.resolvedGitDir)) {
+      try {
+        await ensureOutputDir(effectiveDir);
+      } catch (err) {
+        if (err instanceof DirExistsError) {
+          if (!options.force) {
+            const shouldOverwrite = await promptOverwrite(effectiveDir);
+            if (!shouldOverwrite) {
+              console.log('cancelled');
+              process.exit(0);
+            }
+          }
+          // Remove the existing directory before proceeding
+          await cleanupTempDir(effectiveDir);
+        } else {
+          throw err;
         }
-        // Remove the existing directory before proceeding
-        await cleanupTempDir(effectiveDir);
-      } else {
-        throw err;
       }
     }
 
@@ -85,7 +94,7 @@ async function main(): Promise<void> {
     const timeoutId = setTimeout(() => controller.abort(), 180_000);
 
     try {
-      // 8. Perform sparse clone into tempDir, then copy to localDir
+      // 8. Perform sparse clone into tempDir (clone only, copy is handled below by mode)
       await sparseClone({
         gitUrl: options.gitUrl,
         gitDir: options.resolvedGitDir,
@@ -99,6 +108,47 @@ async function main(): Promise<void> {
       });
     } finally {
       clearTimeout(timeoutId);
+    }
+
+    // ───────────── 展开模式：clone 后第一层冲突检测 ─────────────
+    if (options.expandMode) {
+      const sourceDir = path.join(tempDir, options.resolvedGitDir);
+      const conflicts = await getFirstLevelConflicts(sourceDir, effectiveDir);
+
+      if (conflicts.length > 0) {
+        if (!options.force) {
+          const shouldOverwrite = await promptConflictOverwrite(effectiveDir, conflicts);
+          if (!shouldOverwrite) {
+            console.log('cancelled');
+            process.exit(0);
+          }
+        }
+        // force or yes → copyOutput with force:true overwrites conflicts
+      }
+
+      await copyOutput(tempDir, options.resolvedGitDir, resolvedLocalDir, options.trailingSlash, options.expandMode);
+    } else if (isFilePath(options.resolvedGitDir)) {
+      // ───────────── 文件模式：clone 后目标文件存在性检查 ─────────────
+      const destFile = path.join(resolvedLocalDir, path.basename(options.resolvedGitDir));
+      try {
+        await fs.promises.stat(destFile);
+        // File or directory exists at target path
+        if (!options.force) {
+          const shouldReplace = await promptReplaceFile(destFile);
+          if (!shouldReplace) {
+            console.log('cancelled');
+            process.exit(0);
+          }
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        // File doesn't exist → no conflict, proceed to copy
+      }
+
+      await copyOutput(tempDir, options.resolvedGitDir, resolvedLocalDir, options.trailingSlash, options.expandMode);
+    } else {
+      // ───────────── 目录模式：clone 前已检查，直接复制 ─────────────
+      await copyOutput(tempDir, options.resolvedGitDir, resolvedLocalDir, options.trailingSlash, options.expandMode);
     }
 
     // 9. Clean up temp directory

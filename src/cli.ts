@@ -19,6 +19,7 @@ export interface CliOptions {
   expandMode: boolean;
   branch: string;
   quiet: boolean;
+  force: boolean;
 }
 
 /**
@@ -30,6 +31,8 @@ function isFilePath(pathStr: string): boolean {
   const lastSegment = pathStr.split('/').filter(Boolean).pop() || '';
   return /\.\w+$/.test(lastSegment);
 }
+
+export { isFilePath };
 
 /**
  * Parse command-line arguments and return structured options.
@@ -47,6 +50,7 @@ export function parseArgs(argv: string[]): CliOptions {
     .argument('[local-dir]', 'Local output directory (defaults to last segment of git-dir)')
     .option('--branch <name>', 'Branch to checkout', 'main')
     .option('--quiet', 'Quiet mode — hide step details')
+    .option('-F, --force', 'Force overwrite existing files/directories without prompting')
     .exitOverride();
 
   try {
@@ -127,5 +131,6 @@ export function parseArgs(argv: string[]): CliOptions {
     expandMode,
     branch: options.branch || 'main',
     quiet: !!options.quiet,
+    force: !!options.force,
   };
 }

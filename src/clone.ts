@@ -124,6 +124,45 @@ export async function copyOutput(
 }
 
 /**
+ * Scan the first-level entries of sourceDir and return those that already exist
+ * in targetDir. Returns an empty array when targetDir doesn't exist (fast path).
+ * Directory names are suffixed with '/' to distinguish from files.
+ */
+export async function getFirstLevelConflicts(sourceDir: string, targetDir: string): Promise<string[]> {
+  const conflicts: string[] = [];
+
+  // Fast path: targetDir doesn't exist → no conflicts
+  try {
+    await fs.promises.stat(targetDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+
+  try {
+    const entries = await fs.promises.readdir(sourceDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const targetPath = path.join(targetDir, entry.name);
+      try {
+        await fs.promises.stat(targetPath);
+        conflicts.push(entry.name + (entry.isDirectory() ? '/' : ''));
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        // Not found → no conflict
+      }
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      // sourceDir doesn't exist yet — edge case, no conflicts
+      return [];
+    }
+    throw err;
+  }
+
+  return conflicts;
+}
+
+/**
  * Check that Git is installed and its version is >= 2.25.
  */
 export async function validateGitVersion(): Promise<boolean> {
@@ -236,6 +275,4 @@ export async function sparseClone(options: CloneOptions): Promise<void> {
     }
   }
 
-  // Step 6: Copy files from workDir/gitDir to localDir
-  await copyOutput(workDir, gitDir, localDir, trailingSlash, expandMode);
 }

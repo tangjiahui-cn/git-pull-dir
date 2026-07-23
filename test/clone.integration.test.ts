@@ -18,7 +18,7 @@ const PROJECT_ROOT = process.cwd();
 /**
  * Run the git-pull-dir CLI and return the exit code.
  */
-async function runCli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runCli(args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
   const { execa } = await import('execa');
 
   try {
@@ -28,6 +28,7 @@ async function runCli(args: string[]): Promise<{ code: number; stdout: string; s
     ], {
       timeout: 180_000,
       reject: false,
+      input,
     });
     return { code: result.exitCode ?? 0, stdout: result.stdout, stderr: result.stderr };
   } catch (err) {
@@ -269,6 +270,180 @@ describe('integration: full clone flow', () => {
       expect(fs.existsSync(pkgPath)).toBe(true);
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
       expect(pkg.name).toBe('handwrite-js');
+    } finally {
+      await cleanupTempDir(tmpDir);
+    }
+  }, 300_000);
+
+  // --- v3 --force / conflict tests ---
+
+  it('v3: expand mode + conflict + user types yes', async () => {
+    const tmpDir = await createTempDir();
+    const localDir = path.join(tmpDir, 'expand-yes');
+
+    // Pre-populate target dir with a file that will conflict
+    await fs.promises.mkdir(localDir, { recursive: true });
+    await fs.promises.writeFile(path.join(localDir, 'index.ts'), '// old content');
+    await fs.promises.writeFile(path.join(localDir, 'keep.txt'), '// should be retained');
+
+    const { code, stdout, stderr } = await runCli([
+      TEST_REPO,
+      'src/*',
+      localDir,
+      '--quiet',
+    ], 'yes\n');
+
+    try {
+      expect(code).toBe(0);
+      // Conflict file should be overwritten with new content
+      expect(fs.existsSync(path.join(localDir, 'index.ts'))).toBe(true);
+      // File not in source should be retained
+      expect(fs.existsSync(path.join(localDir, 'keep.txt'))).toBe(true);
+      // Files from source should exist
+      expect(fs.existsSync(path.join(localDir, 'utils'))).toBe(true);
+    } finally {
+      await cleanupTempDir(tmpDir);
+    }
+  }, 300_000);
+
+  it('v3: expand mode + conflict + --force', async () => {
+    const tmpDir = await createTempDir();
+    const localDir = path.join(tmpDir, 'expand-force');
+
+    // Pre-populate target dir with a file that will conflict
+    await fs.promises.mkdir(localDir, { recursive: true });
+    await fs.promises.writeFile(path.join(localDir, 'index.ts'), '// old content');
+    await fs.promises.writeFile(path.join(localDir, 'keep.txt'), '// should be retained');
+
+    const { code, stdout, stderr } = await runCli([
+      TEST_REPO,
+      'src/*',
+      localDir,
+      '--quiet',
+      '--force',
+    ]);
+
+    try {
+      expect(code).toBe(0);
+      // Conflict file overwritten
+      expect(fs.existsSync(path.join(localDir, 'index.ts'))).toBe(true);
+      // Unrelated file retained
+      expect(fs.existsSync(path.join(localDir, 'keep.txt'))).toBe(true);
+      // Source files present
+      expect(fs.existsSync(path.join(localDir, 'utils'))).toBe(true);
+      // No "是否覆盖" prompt in output
+      expect(stdout).not.toContain('是否覆盖');
+    } finally {
+      await cleanupTempDir(tmpDir);
+    }
+  }, 300_000);
+
+  it('v3: file mode + file exists + user types no', async () => {
+    const tmpDir = await createTempDir();
+    const localDir = path.join(tmpDir, 'file-no');
+
+    // Pre-populate target dir with a file that will conflict
+    await fs.promises.mkdir(localDir, { recursive: true });
+    const existingContent = '// original content';
+    await fs.promises.writeFile(path.join(localDir, 'package.json'), existingContent);
+
+    const { code, stdout, stderr } = await runCli([
+      TEST_REPO,
+      'package.json',
+      localDir,
+      '--quiet',
+    ], 'no\n');
+
+    try {
+      expect(code).toBe(0);
+      // File should NOT have changed
+      const content = fs.readFileSync(path.join(localDir, 'package.json'), 'utf-8');
+      expect(content).toBe(existingContent);
+      // Should output "cancelled"
+      expect(stdout).toContain('cancelled');
+    } finally {
+      await cleanupTempDir(tmpDir);
+    }
+  }, 300_000);
+
+  it('v3: file mode + --force + file exists', async () => {
+    const tmpDir = await createTempDir();
+    const localDir = path.join(tmpDir, 'file-force');
+
+    // Pre-populate target dir with a file that will conflict
+    await fs.promises.mkdir(localDir, { recursive: true });
+    await fs.promises.writeFile(path.join(localDir, 'package.json'), '{"name":"old"}');
+
+    const { code, stdout, stderr } = await runCli([
+      TEST_REPO,
+      'package.json',
+      localDir,
+      '--quiet',
+      '--force',
+    ]);
+
+    try {
+      expect(code).toBe(0);
+      // File should be overwritten
+      const pkg = JSON.parse(fs.readFileSync(path.join(localDir, 'package.json'), 'utf-8'));
+      expect(pkg.name).toBe('handwrite-js');
+      // No "是否替换" prompt in output
+      expect(stdout).not.toContain('是否替换');
+    } finally {
+      await cleanupTempDir(tmpDir);
+    }
+  }, 300_000);
+
+  it('v3: directory mode + --force', async () => {
+    const tmpDir = await createTempDir();
+    const localDir = path.join(tmpDir, 'dir-force');
+
+    // Create a non-empty target dir that would normally trigger promptOverwrite
+    await fs.promises.mkdir(localDir, { recursive: true });
+    await fs.promises.writeFile(path.join(localDir, 'stale.txt'), 'old');
+
+    const { code, stdout, stderr } = await runCli([
+      TEST_REPO,
+      'src',
+      localDir,
+      '--quiet',
+      '--force',
+    ]);
+
+    try {
+      expect(code).toBe(0);
+      // Dir should have been deleted and rebuilt with source content
+      expect(fs.existsSync(path.join(localDir, 'index.ts'))).toBe(true);
+      // Old file should be gone (directory mode deletes entire dir)
+      expect(fs.existsSync(path.join(localDir, 'stale.txt'))).toBe(false);
+      // No "是否覆盖" prompt
+      expect(stdout).not.toContain('是否覆盖');
+    } finally {
+      await cleanupTempDir(tmpDir);
+    }
+  }, 300_000);
+
+  it('v3: expand mode + no conflicts (target empty)', async () => {
+    const tmpDir = await createTempDir();
+    const localDir = path.join(tmpDir, 'expand-noconflict');
+
+    // Create empty target dir
+    await fs.promises.mkdir(localDir, { recursive: true });
+
+    const { code, stdout, stderr } = await runCli([
+      TEST_REPO,
+      'src/*',
+      localDir,
+      '--quiet',
+    ]);
+
+    try {
+      expect(code).toBe(0);
+      // Files should be copied normally
+      expect(fs.existsSync(path.join(localDir, 'index.ts'))).toBe(true);
+      expect(fs.existsSync(path.join(localDir, 'utils'))).toBe(true);
+      // No "是否覆盖" prompt
+      expect(stdout).not.toContain('是否覆盖');
     } finally {
       await cleanupTempDir(tmpDir);
     }

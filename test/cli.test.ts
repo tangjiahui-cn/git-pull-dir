@@ -109,4 +109,21 @@ describe('parseArgs', () => {
     expect(result.resolvedGitDir).toBe('.');
     expect(result.localDir).toBeUndefined();
   });
+
+  // --- --force tests ---
+
+  it('should parse --force flag', () => {
+    const result = parseArgs([VALID_URL, 'src', '--force']);
+    expect(result.force).toBe(true);
+  });
+
+  it('should parse -F short option', () => {
+    const result = parseArgs([VALID_URL, 'src', '-F']);
+    expect(result.force).toBe(true);
+  });
+
+  it('should default force to false', () => {
+    const result = parseArgs([VALID_URL, 'src']);
+    expect(result.force).toBe(false);
+  });
 });

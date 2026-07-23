@@ -132,6 +132,56 @@ export async function promptOverwrite(dir: string): Promise<boolean> {
 }
 
 /**
+ * List conflicting entries and prompt the user whether to overwrite all.
+ * Keeps asking until the user types "yes" or "no" (case-insensitive).
+ */
+export async function promptConflictOverwrite(dir: string, conflicts: string[]): Promise<boolean> {
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise<boolean>((resolve) => {
+    const ask = () => {
+      const conflictList = conflicts.map(c => `  - ${c}`).join('\n');
+      rl.question(
+        `以下条目在 ${dir} 中已存在：\n${conflictList}\n是否覆盖所有冲突条目？(yes/no)\n`,
+        (answer) => {
+          const trimmed = answer.trim().toLowerCase();
+          if (trimmed === 'yes') { rl.close(); resolve(true); }
+          else if (trimmed === 'no') { rl.close(); resolve(false); }
+          else ask();
+        }
+      );
+    };
+    ask();
+  });
+}
+
+/**
+ * Prompt the user whether to replace an existing file.
+ * Keeps asking until the user types "yes" or "no" (case-insensitive).
+ */
+export async function promptReplaceFile(filePath: string): Promise<boolean> {
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise<boolean>((resolve) => {
+    const ask = () => {
+      rl.question(`文件 ${filePath} 已存在，是否替换？(yes/no)\n`, (answer) => {
+        const trimmed = answer.trim().toLowerCase();
+        if (trimmed === 'yes') { rl.close(); resolve(true); }
+        else if (trimmed === 'no') { rl.close(); resolve(false); }
+        else ask();
+      });
+    };
+    ask();
+  });
+}
+
+/**
  * Check if the target output directory exists and is non-empty.
  * If it exists and is non-empty, throw DirExistsError.
  */

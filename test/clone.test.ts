@@ -4,7 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildCloneCmd, buildSparseCheckoutCmd, buildCheckoutCmd, validateGitVersion, copyOutput } from '../src/clone.js';
-import { parseGitUrl, ensureOutputDir } from '../src/utils.js';
+import { parseGitUrl, ensureOutputDir, promptConflictOverwrite, promptReplaceFile } from '../src/utils.js';
+import { getFirstLevelConflicts } from '../src/clone.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -271,5 +272,178 @@ describe('copyOutput', () => {
     } finally {
       await cleanup();
     }
+  });
+});
+
+// ───────────── getFirstLevelConflicts tests ─────────────
+
+async function setupConflictFixture(): Promise<{
+  baseDir: string;
+  sourceDir: string;
+  targetDir: string;
+  cleanup: () => Promise<void>;
+}> {
+  const baseDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'conflict-test-'));
+  const sourceDir = path.join(baseDir, 'source');
+  const targetDir = path.join(baseDir, 'target');
+
+  // Source: file1.txt, dir1/, file2.txt
+  await fs.promises.mkdir(path.join(sourceDir), { recursive: true });
+  await fs.promises.writeFile(path.join(sourceDir, 'file1.txt'), 'a');
+  await fs.promises.mkdir(path.join(sourceDir, 'dir1'), { recursive: true });
+  await fs.promises.writeFile(path.join(sourceDir, 'file2.txt'), 'b');
+
+  // Target: only file1.txt and dir1/ exist (same names — conflicts)
+  await fs.promises.mkdir(path.join(targetDir), { recursive: true });
+  await fs.promises.writeFile(path.join(targetDir, 'file1.txt'), 'existing a');
+  await fs.promises.mkdir(path.join(targetDir, 'dir1'), { recursive: true });
+
+  const cleanup = async () => {
+    await fs.promises.rm(baseDir, { recursive: true, force: true });
+  };
+
+  return { baseDir, sourceDir, targetDir, cleanup };
+}
+
+describe('getFirstLevelConflicts', () => {
+  it('should return empty array when there are no conflicts', async () => {
+    const { baseDir, sourceDir, cleanup } = await setupConflictFixture();
+    const emptyTarget = path.join(baseDir, 'empty-target');
+    await fs.promises.mkdir(emptyTarget, { recursive: true });
+
+    try {
+      const result = await getFirstLevelConflicts(sourceDir, emptyTarget);
+      expect(result).toEqual([]);
+    } finally {
+      await cleanup();
+      await fs.promises.rm(emptyTarget, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('should return conflicting entry names when conflicts exist', async () => {
+    const { sourceDir, targetDir, cleanup } = await setupConflictFixture();
+
+    try {
+      const result = await getFirstLevelConflicts(sourceDir, targetDir);
+      expect(result).toContain('file1.txt');
+      expect(result).toContain('dir1/');
+      expect(result).not.toContain('file2.txt');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('should return empty array when sourceDir does not exist', async () => {
+    const { baseDir, targetDir, cleanup } = await setupConflictFixture();
+    const nonExistentSource = path.join(baseDir, 'no-such-source');
+
+    try {
+      const result = await getFirstLevelConflicts(nonExistentSource, targetDir);
+      expect(result).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('should correctly distinguish files and directories', async () => {
+    const { sourceDir, targetDir, cleanup } = await setupConflictFixture();
+
+    try {
+      const result = await getFirstLevelConflicts(sourceDir, targetDir);
+      // dir1 should have / suffix, file1.txt should not
+      expect(result).toContain('dir1/');
+      expect(result).toContain('file1.txt');
+      // Verify no file is accidentally marked as directory
+      for (const entry of result) {
+        if (entry === 'dir1/') {
+          expect(entry.endsWith('/')).toBe(true);
+        } else {
+          expect(entry.endsWith('/')).toBe(false);
+        }
+      }
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('should return empty array when targetDir does not exist (fast path)', async () => {
+    const { baseDir, sourceDir, cleanup } = await setupConflictFixture();
+    const nonExistentTarget = path.join(baseDir, 'no-such-target');
+
+    try {
+      const result = await getFirstLevelConflicts(sourceDir, nonExistentTarget);
+      expect(result).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+// ───────────── Prompt function tests ─────────────
+
+vi.mock('node:readline', () => {
+  const mockQuestion = vi.fn();
+  const mockClose = vi.fn();
+  return {
+    createInterface: vi.fn(() => ({
+      question: mockQuestion,
+      close: mockClose,
+    })),
+  };
+});
+
+describe('promptConflictOverwrite', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should resolve true when user types yes', async () => {
+    const { createInterface } = await import('node:readline');
+    vi.mocked(createInterface).mockImplementation(() => {
+      const q = vi.fn((_prompt: string, callback: (answer: string) => void) => callback('yes'));
+      return { question: q, close: vi.fn() } as any;
+    });
+
+    const result = await promptConflictOverwrite('/tmp/dir', ['a.txt', 'b/']);
+    expect(result).toBe(true);
+  });
+
+  it('should resolve false when user types no', async () => {
+    const { createInterface } = await import('node:readline');
+    vi.mocked(createInterface).mockImplementation(() => {
+      const q = vi.fn((_prompt: string, callback: (answer: string) => void) => callback('no'));
+      return { question: q, close: vi.fn() } as any;
+    });
+
+    const result = await promptConflictOverwrite('/tmp/dir', ['a.txt']);
+    expect(result).toBe(false);
+  });
+});
+
+describe('promptReplaceFile', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should resolve true when user types yes', async () => {
+    const { createInterface } = await import('node:readline');
+    vi.mocked(createInterface).mockImplementation(() => {
+      const q = vi.fn((_prompt: string, callback: (answer: string) => void) => callback('yes'));
+      return { question: q, close: vi.fn() } as any;
+    });
+
+    const result = await promptReplaceFile('/tmp/dest/file.txt');
+    expect(result).toBe(true);
+  });
+
+  it('should resolve false when user types no', async () => {
+    const { createInterface } = await import('node:readline');
+    vi.mocked(createInterface).mockImplementation(() => {
+      const q = vi.fn((_prompt: string, callback: (answer: string) => void) => callback('no'));
+      return { question: q, close: vi.fn() } as any;
+    });
+
+    const result = await promptReplaceFile('/tmp/dest/file.txt');
+    expect(result).toBe(false);
   });
 });
