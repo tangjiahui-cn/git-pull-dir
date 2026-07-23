@@ -4,8 +4,33 @@
   "description": "A CLI tool to clone a specific directory from a remote git repository to local, designed for syncing skills managed by internal GitLab into projects.",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
   "bin": {
     "git-pull-dir": "dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangjiahui-cn/git-pull-dir.git"
+  },
+  "homepage": "https://github.com/tangjiahui-cn/git-pull-dir#readme",
+  "bugs": {
+    "url": "https://github.com/tangjiahui-cn/git-pull-dir/issues"
   },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --outDir dist",
