@@ -1,0 +1,8 @@
+{
+  "nodeVersion": ">=20",
+  "buildScript": "build",
+  "testScript": "test",
+  "remoteName": "origin",
+  "pushBranch": "master",
+  "commitMessage": "chore(release): v%s"
+}
