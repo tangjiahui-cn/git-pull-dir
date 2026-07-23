@@ -18,7 +18,7 @@
  *   tsx scripts/release.ts --yes --type=patch   # CI 模式
  *   tsx scripts/release.ts --dry-run            # 模拟运行
  *
- * 注意：本脚本不执行 pnpm publish，完成后需手动执行。
+ * 注意：本脚本不执行 pnpm publish（由 prepublishOnly 自动触发）。
  */
 // ============================================================
 // Imports
@@ -595,8 +595,8 @@ async function main(): Promise<void> {
     console.log(`  ${C.yellow}📦 提示: 执行 git stash pop 恢复暂存的变更。${C.reset}`);
   }
 
-  console.log(`\n${C.green}${C.bold}✅ 前置准备完成！${C.reset}`);
-  console.log(`  ${C.bold}请执行 \`pnpm publish\` 完成发布。${C.reset}\n`);
+  console.log(`\n${C.green}${C.bold}✅ 发布前置准备完成！${C.reset}`);
+  console.log(`  ${C.bold}将自动执行 \`pnpm publish\` 完成发布。${C.reset}\n`);
 }
 
 // ============================================================

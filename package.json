@@ -38,7 +38,7 @@
     "test": "vitest run",
     "test:unit": "vitest run test/cli.test.ts test/clone.test.ts",
     "test:integration": "vitest run test/clone.integration.test.ts",
-    "prepublishOnly": "pnpm run build && pnpm test",
+    "prepublishOnly": "tsx scripts/release.ts",
     "release": "tsx scripts/release.ts",
     "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s",
     "version": "pnpm changelog && git add CHANGELOG.md"
